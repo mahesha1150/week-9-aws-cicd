@@ -1,76 +1,118 @@
-const mongoose = require("mongoose");
 const express = require('express');
-const { User, Course, Admin } = require("../db");
+const { Admin, Course } = require("../db");
 const jwt = require('jsonwebtoken');
-const { SECRET } = require("../middleware/auth")
-const { authenticateJwt } = require("../middleware/auth");
+//const { SECRET } = require("../middleware/auth")
+const { authenticateAdminJwt, authenticateUserJwt } = require("../middleware/auth");
 
 const router = express.Router();
 
-router.get("/me", authenticateJwt, async (req, res) => {
-    const admin = await Admin.findOne({ username: req.user.username });
-    if (!admin) {
-      res.status(403).json({msg: "Admin doesnt exist"})
-      return
+// Admin routes
+/* router.post('/signup', async (req, res) => {// logic to sign up admin
+    let { username, password } = req.body;
+    let adminCheck = await Admin.findOne({ username })
+
+    if (adminCheck) {
+        res.status(400).json({ message: "Admin's username provied is already registered" });
+    } else {
+        const newAdmin = new Admin({ username, password });
+        await newAdmin.save();
+
+        const accessToken = jwt.sign({ username, role: "admin" }, process.env.ADMIN_ACCESS_TOKEN_SECRET, { expiresIn: '30m' });
+        return res.status(201).json({ message: 'Admin created successfully', accessToken });
     }
-    res.json({
-        username: admin.username
-    })
+
+}); */
+
+/* router.post('/login', async (req, res) => {// logic to log in admin
+    let { username, password } = req.headers;
+
+    let admin = await Admin.findOne({ username, password });
+    if (admin) {
+        const accessToken = jwt.sign({ username, role: "admin" }, process.env.ADMIN_ACCESS_TOKEN_SECRET, { expiresIn: '30m' });
+        return res.json({ message: 'Logged in successfully', accessToken });
+    }
+
+    res.status(401).json({ message: 'Invalid Admin Credentials' });
+}); */
+
+/* router.get('/profile', authenticateAdminJwt, async (req, res) => {// logic to get Admin Profile details
+    return res.json({ username: req.user.username, role: req.user.role });
+}); */
+
+router.post('/courses', authenticateUserJwt, async (req, res) => {// logic to create a course
+    if (req.user.userrole === "admin") {
+        let { title } = req.body;
+        //let courseCheck = await Course.findOne({ title: req.body.title });
+        let courseCheck = await Course.findOne({ title });
+
+        if (courseCheck) {
+            return res.status(400).json({ message: `Course with the Title: ${title} is already added` })
+        } else {
+            const course = new Course(req.body);
+            await course.save();
+
+            return res.status(201).json({ message: 'Course created successfully', courseId: course.id });
+        }
+    } else {
+        return res.status(403).json({ message: 'User does not have Admin Permissions' })
+    }
 });
 
-router.post('/signup', (req, res) => {
-    const { username, password } = req.body;
-    function callback(admin) {
-      if (admin) {
-        res.status(403).json({ message: 'Admin already exists' });
-      } else {
-        const obj = { username: username, password: password };
-        const newAdmin = new Admin(obj);
-        newAdmin.save();
+router.put('/courses/:courseId', authenticateUserJwt, async (req, res) => {// logic to edit a course
+    if (req.user.userrole === "admin") {
+        try {
+            let course = await Course.findByIdAndUpdate(req.params.courseId, req.body, { new: true });
+            if (course) {
+                return res.json({ message: 'Course updated successfully' });
+            } else {
+                return res.status(400).json({ message: 'Course with the course Id does not exist' });
+            }
+        } catch (error) {
+            console.error(error);
+            res.status(400).json({ message: "Error Updating" });
+        }
+    } else {
+        return res.status(403).json({ message: 'User does not have Admin Permissions' })
+    }
+});
 
-        const token = jwt.sign({ username, role: 'admin' }, SECRET, { expiresIn: '1h' });
-        res.json({ message: 'Admin created successfully', token });
-      }
-  
-    }
-    Admin.findOne({ username }).then(callback);
-  });
-  
-  router.post('/login', async (req, res) => {
-    const { username, password } = req.headers;
-    const admin = await Admin.findOne({ username, password });
-    if (admin) {
-      const token = jwt.sign({ username, role: 'admin' }, SECRET, { expiresIn: '1h' });
-      res.json({ message: 'Logged in successfully', token });
-    } else {
-      res.status(403).json({ message: 'Invalid username or password' });
-    }
-  });
-  
-  router.post('/courses', authenticateJwt, async (req, res) => {
-    const course = new Course(req.body);
-    await course.save();
-    res.json({ message: 'Course created successfully', courseId: course.id });
-  });
-  
-  router.put('/courses/:courseId', authenticateJwt, async (req, res) => {
-    const course = await Course.findByIdAndUpdate(req.params.courseId, req.body, { new: true });
-    if (course) {
-      res.json({ message: 'Course updated successfully' });
-    } else {
-      res.status(404).json({ message: 'Course not found' });
-    }
-  });
-  
-  router.get('/courses', authenticateJwt, async (req, res) => {
+router.get('/courses', authenticateUserJwt, async (req, res) => {// logic to get all courses
     const courses = await Course.find({});
-    res.json({ courses });
-  });
-  
-  router.get('/course/:courseId', authenticateJwt, async (req, res) => {
-    const courseId = req.params.courseId;
-    const course = await Course.findById(courseId);
-    res.json({ course });
-  });
+    return res.json({ courses: courses });
+});
 
-  module.exports = router
+router.get('/courses/:courseId', authenticateUserJwt, async (req, res) => {// logic to get a course
+    if (req.user.userrole === "admin") {
+        let course = await Course.findById(req.params.courseId);
+
+        if (course) {
+            return res.json({ course });
+        } else {
+            return res.status(404).json({ message: 'Course ID does not Exist' })
+        }
+    } else {
+        return res.status(403).json({ message: 'User does not have Admin Permissions' })
+    }
+
+});
+
+router.delete('/courses/:courseId', authenticateUserJwt, async (req, res) => {// logic to delete a course
+    if (req.user.userrole === "admin") {
+        let course;
+        try {
+            course = await Course.findByIdAndRemove(req.params.courseId);
+        } catch (err) {
+            console.error('Error deleting course:', err);
+        }
+        if (course) {
+            return res.json({ message: "Course deleted successfully!", course });
+        } else {
+            return res.status(404).json({ message: "Error in deletion!" })
+        }
+    } else {
+        return res.status(403).json({ message: 'User does not have Admin Permissions' })
+    }
+})
+
+
+module.exports = router
